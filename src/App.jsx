@@ -10,12 +10,14 @@ const KEY_OWNER   = 'lp_owner'
 const load = (key, fb) => { try { return JSON.parse(localStorage.getItem(key)) ?? fb } catch { return fb } }
 const save = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)) } catch (e) { console.error(e) } }
 const initials = (n = '') => n.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?'
-const fmtPKR = v => {
+
+/* PKR replaced with USD */
+const fmtUSD = v => {
   const n = parseFloat(v)
   if (!n) return '—'
-  if (n >= 1e6) return `₨${(n / 1e6).toFixed(1)}M`
-  if (n >= 1e3) return `₨${(n / 1e3).toFixed(0)}K`
-  return `₨${n.toLocaleString()}`
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`
+  return `$${n.toLocaleString()}`
 }
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -23,13 +25,12 @@ const PIE_COLORS = ['#8a2be2','#9d4edd','#b794f4','#d8b4fe','#7b2bd6','#6b25cb']
 const COMPANIES = ['Progressive','American First Finance','Acima','Paytriage','Easy Pay']
 const EMPTY = { employeeName:'', customerName:'', customerNumber:'', leasingCompany:'', leasingAmount:'', approvedBy:'', approvedDate:'', deviceName:'', deviceAmount:'', paymentTime:'' }
 
-/* ChartTip OUTSIDE component — prevents remount on every render */
 const ChartTip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
   return (
     <div style={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, padding:'10px 14px', boxShadow:'0 4px 16px rgba(0,0,0,0.15)', fontSize:12, color:'#0f172a' }}>
       <p style={{ fontWeight:700, marginBottom:5 }}>{label}</p>
-      {payload.map(p => <p key={p.name} style={{ color:p.color, marginBottom:2 }}>{p.name}: {p.name === 'count' ? p.value : fmtPKR(p.value)}</p>)}
+      {payload.map(p => <p key={p.name} style={{ color:p.color, marginBottom:2 }}>{p.name}: {p.name === 'count' ? p.value : fmtUSD(p.value)}</p>)}
     </div>
   )
 }
@@ -50,7 +51,7 @@ function LoginScreen({ onLogin }) {
           <input className="login-input" placeholder="e.g. Ahmed Ali, Sara Khan" value={name} onChange={e => setName(e.target.value)} autoFocus />
           <button type="submit" className="login-btn">Open Dashboard →</button>
         </form>
-        <p className="login-footer">Data is stored locally and never deleted</p>
+        <p className="login-footer">Data is stored locally — same name gives you your data back every time</p>
       </div>
     </div>
   )
@@ -67,14 +68,23 @@ export default function App() {
   const [sideOpen,     setSideOpen]     = useState(false)
   const [viewCustomer, setViewCustomer] = useState(null)
   const [custSearch,   setCustSearch]   = useState('')
+  const [showCustDrop, setShowCustDrop] = useState(false)
 
-  /* Only 3 effects — all stable deps, no loops */
   useEffect(() => { save(KEY_RECORDS, records) }, [records])
   useEffect(() => { save(KEY_OWNER, owner) }, [owner])
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
     localStorage.setItem(KEY_THEME, dark ? 'dark' : 'light')
   }, [dark])
+
+  /* Close customer dropdown on outside click */
+  useEffect(() => {
+    const handler = e => {
+      if (!e.target.closest('.search-box')) setShowCustDrop(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   if (!owner) return <LoginScreen onLogin={n => { setOwner(n); save(KEY_OWNER, n) }} />
 
@@ -103,9 +113,14 @@ export default function App() {
   myRecs.forEach(r => { if (r.leasingCompany) companyMap[r.leasingCompany] = (companyMap[r.leasingCompany] || 0) + (parseFloat(r.leasingAmount) || 0) })
   const pieData = Object.entries(companyMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, value]) => ({ name, value }))
 
+  /* Top searchbar: search by customer name */
+  const topSearchResults = search.trim()
+    ? [...new Set(myRecs.filter(r => r.customerName?.toLowerCase().includes(search.toLowerCase())).map(r => r.customerName))]
+    : []
+
   const filtered = myRecs.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(search.toLowerCase())))
 
-  /* Customer search — inline, NO useEffect, no stale closure */
+  /* Sidebar customer search */
   const custResults = custSearch.trim()
     ? [...new Set(myRecs.filter(r => r.customerName?.toLowerCase().includes(custSearch.toLowerCase())).map(r => r.customerName))]
     : []
@@ -123,9 +138,13 @@ export default function App() {
   }
 
   const exportData = () => {
-    const blob = new Blob([JSON.stringify({ records: myRecs, owner, exportDate: new Date().toISOString() }, null, 2)], { type:'application/json' })
+    /* Export ALL records so import restores everything */
+    const blob = new Blob([JSON.stringify({ records, exportDate: new Date().toISOString(), version: 'v3' }, null, 2)], { type:'application/json' })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = `leasepro_${new Date().toISOString().split('T')[0]}.json`; a.click()
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `leasepro_backup_${new Date().toISOString().split('T')[0]}.json`
+    a.click()
     URL.revokeObjectURL(url)
   }
 
@@ -135,15 +154,21 @@ export default function App() {
     reader.onload = ev => {
       try {
         const data = JSON.parse(ev.target.result)
-        if (data.records && Array.isArray(data.records)) {
-          if (confirm(`Import ${data.records.length} records? This will merge with existing data.`)) {
-            const ids = new Set(records.map(r => r.id))
-            setRecords(p => [...p, ...data.records.filter(r => !ids.has(r.id))])
-          }
+        const incoming = data.records || (Array.isArray(data) ? data : null)
+        if (!incoming) return alert('Invalid backup file.')
+        if (window.confirm(`Import ${incoming.length} records? Duplicates will be skipped.`)) {
+          setRecords(prev => {
+            const ids = new Set(prev.map(r => r.id))
+            const merged = [...prev, ...incoming.filter(r => !ids.has(r.id))]
+            save(KEY_RECORDS, merged)
+            return merged
+          })
+          alert('Import successful!')
         }
-      } catch { alert('Invalid file format') }
+      } catch { alert('Could not read file. Make sure it is a valid LeasePro backup.') }
     }
-    reader.readAsText(file); e.target.value = ''
+    reader.readAsText(file)
+    e.target.value = ''
   }
 
   return (
@@ -170,7 +195,7 @@ export default function App() {
             <li className="active"><button><span className="nav-icon">🏠</span>Dashboard</button></li>
           </ul>
           <div className="sidebar-sec-label" style={{ marginTop:14 }}>Customer Search</div>
-          <div style={{ padding:'0 10px 12px' }}>
+          <div style={{ padding:'0 10px 12px', position:'relative' }}>
             <input type="text" placeholder="Search customer..." value={custSearch} onChange={e => setCustSearch(e.target.value)}
               style={{ width:'100%', padding:'9px 12px', border:'1.5px solid var(--border)', borderRadius:'10px', fontSize:'13px', outline:'none', background:'var(--main-bg)', color:'var(--text-dark)', fontFamily:'inherit' }} />
             {custResults.length > 0 && (
@@ -189,9 +214,9 @@ export default function App() {
           <div className="sidebar-sec-label">Actions</div>
           <ul className="sidebar-nav">
             <li><button onClick={() => { openAdd(); setSideOpen(false) }}><span className="nav-icon">➕</span>Add New Entry</button></li>
-            <li><button onClick={exportData}><span className="nav-icon">📥</span>Export Data</button></li>
+            <li><button onClick={exportData}><span className="nav-icon">📥</span>Export Backup</button></li>
             <li>
-              <button onClick={() => document.getElementById('imp-file').click()}><span className="nav-icon">📤</span>Import Data</button>
+              <button onClick={() => document.getElementById('imp-file').click()}><span className="nav-icon">📤</span>Import Backup</button>
               <input type="file" id="imp-file" accept=".json" style={{ display:'none' }} onChange={importData} />
             </li>
           </ul>
@@ -221,15 +246,35 @@ export default function App() {
           </div>
         </div>
 
+        {/* Topbar with customer name search dropdown */}
         <div className="topbar">
           <div className="topbar-left">
             <h2>Dashboard Overview</h2>
             <p>{myRecs.length} total records · {owner}</p>
           </div>
           <div className="topbar-right">
-            <div className="search-box">
+            <div className="search-box" style={{ position:'relative' }}>
               <span>🔍</span>
-              <input placeholder="Search records..." value={search} onChange={e => setSearch(e.target.value)} />
+              <input
+                placeholder="Search customer name..."
+                value={search}
+                onChange={e => { setSearch(e.target.value); setShowCustDrop(true) }}
+                onFocus={() => setShowCustDrop(true)}
+              />
+              {showCustDrop && topSearchResults.length > 0 && (
+                <div style={{ position:'absolute', top:'110%', left:0, right:0, background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', zIndex:200, maxHeight:220, overflowY:'auto' }}>
+                  {topSearchResults.map((name, i) => (
+                    <div key={i}
+                      onClick={() => { setViewCustomer(name); setSearch(''); setShowCustDrop(false) }}
+                      style={{ padding:'10px 14px', cursor:'pointer', fontSize:'13px', color:'var(--text-dark)', borderBottom: i < topSearchResults.length-1 ? '1px solid var(--border)' : 'none', display:'flex', alignItems:'center', gap:8 }}
+                      onMouseEnter={e => e.currentTarget.style.background='var(--main-bg)'}
+                      onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                      <span style={{ width:28, height:28, borderRadius:'50%', background:'var(--gradient-premium)', color:'#fff', fontSize:10, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>{initials(name)}</span>
+                      {name}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <button className="btn-add" onClick={openAdd}>+ Add</button>
           </div>
@@ -244,12 +289,12 @@ export default function App() {
             </div>
             <div className="stat-card">
               <div className="stat-top"><div className="stat-icon">💰</div><span className="stat-badge">Leasing</span></div>
-              <div className="stat-val">{fmtPKR(totalLease)}</div>
+              <div className="stat-val">{fmtUSD(totalLease)}</div>
               <div className="stat-lbl">Total Leasing Amount</div>
             </div>
             <div className="stat-card">
               <div className="stat-top"><div className="stat-icon">📱</div><span className="stat-badge">Devices</span></div>
-              <div className="stat-val">{fmtPKR(totalDevice)}</div>
+              <div className="stat-val">{fmtUSD(totalDevice)}</div>
               <div className="stat-lbl">Total Device Amount</div>
             </div>
             <div className="stat-card">
@@ -276,7 +321,7 @@ export default function App() {
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                       <XAxis dataKey="month" tick={{ fontSize:11, fill:'#64748b' }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize:11, fill:'#64748b' }} axisLine={false} tickLine={false} tickFormatter={fmtPKR} />
+                      <YAxis tick={{ fontSize:11, fill:'#64748b' }} axisLine={false} tickLine={false} tickFormatter={fmtUSD} />
                       <Tooltip content={<ChartTip />} />
                       <Area type="monotone" dataKey="leasing" name="Leasing" stroke="#8a2be2" strokeWidth={2.5} fill="url(#gL)" />
                       <Area type="monotone" dataKey="device" name="Device" stroke="#4169e1" strokeWidth={2.5} fill="url(#gD)" />
@@ -291,7 +336,7 @@ export default function App() {
                         <Pie data={pieData} cx="50%" cy="50%" innerRadius={52} outerRadius={80} dataKey="value" paddingAngle={3}>
                           {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                         </Pie>
-                        <Tooltip formatter={fmtPKR} contentStyle={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:8, fontSize:12 }} />
+                        <Tooltip formatter={fmtUSD} contentStyle={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:8, fontSize:12 }} />
                         <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize:11 }} />
                       </PieChart>
                     </ResponsiveContainer>
@@ -325,7 +370,7 @@ export default function App() {
                 <div className="empty-state">
                   <div className="empty-ico">📭</div>
                   <h3>{search ? 'No results found' : 'No records yet'}</h3>
-                  <p>{search ? `No match for "${search}"` : 'Click the button below to add your first entry'}</p>
+                  <p>{search ? `No customer found for "${search}"` : 'Click the button below to add your first entry'}</p>
                   {!search && <button className="btn-add" style={{ margin:'0 auto' }} onClick={openAdd}>+ Add First Entry</button>}
                 </div>
               ) : (
@@ -346,11 +391,11 @@ export default function App() {
                         <td><span className="customer-link" onClick={() => setViewCustomer(r.customerName)}>{r.customerName||'—'}</span></td>
                         <td>{r.customerNumber||'—'}</td>
                         <td>{r.leasingCompany ? <span className="badge-co">{r.leasingCompany}</span> : '—'}</td>
-                        <td className="amt-cell">{fmtPKR(r.leasingAmount)}</td>
+                        <td className="amt-cell">{fmtUSD(r.leasingAmount)}</td>
                         <td>{r.approvedBy||'—'}</td>
                         <td>{r.approvedDate||'—'}</td>
                         <td>{r.deviceName||'—'}</td>
-                        <td className="amt-cell">{fmtPKR(r.deviceAmount)}</td>
+                        <td className="amt-cell">{fmtUSD(r.deviceAmount)}</td>
                         <td>{r.paymentTime||'—'}</td>
                         <td><span className="own-badge"><span className="own-dot"/>{r.owner}</span></td>
                         <td><button className="btn-edit" onClick={() => openEdit(r)}>✏️ Edit</button></td>
@@ -364,9 +409,9 @@ export default function App() {
         </div>
       </div>
 
-      {/* Customer Detail Modal */}
+      {/* Customer Detail Modal — only closes via ✕ */}
       {viewCustomer && (
-        <div className="modal-overlay" onClick={() => setViewCustomer(null)}>
+        <div className="modal-overlay">
           <div className="modal cust-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-hdr">
               <div><h2>👤 {viewCustomer}</h2><p>{custRecs.length} record{custRecs.length!==1?'s':''} found</p></div>
@@ -379,11 +424,11 @@ export default function App() {
                   <div className="cust-detail-item"><span>📞 Phone</span><strong>{r.customerNumber||'—'}</strong></div>
                   <div className="cust-detail-item"><span>👨‍💼 Employee</span><strong>{r.employeeName||'—'}</strong></div>
                   <div className="cust-detail-item"><span>🏢 Leasing Company</span><strong>{r.leasingCompany||'—'}</strong></div>
-                  <div className="cust-detail-item"><span>💰 Leasing Amount</span><strong style={{ color:'var(--green)' }}>{fmtPKR(r.leasingAmount)}</strong></div>
+                  <div className="cust-detail-item"><span>💰 Leasing Amount</span><strong style={{ color:'var(--primary)' }}>{fmtUSD(r.leasingAmount)}</strong></div>
                   <div className="cust-detail-item"><span>✅ Approved By</span><strong>{r.approvedBy||'—'}</strong></div>
                   <div className="cust-detail-item"><span>📅 Approved Date</span><strong>{r.approvedDate||'—'}</strong></div>
                   <div className="cust-detail-item"><span>📱 Device</span><strong>{r.deviceName||'—'}</strong></div>
-                  <div className="cust-detail-item"><span>💵 Device Amount</span><strong style={{ color:'var(--green)' }}>{fmtPKR(r.deviceAmount)}</strong></div>
+                  <div className="cust-detail-item"><span>💵 Device Amount</span><strong style={{ color:'var(--primary)' }}>{fmtUSD(r.deviceAmount)}</strong></div>
                   <div className="cust-detail-item full"><span>🕐 Payment Plan</span><strong>{r.paymentTime||'—'}</strong></div>
                   <div className="cust-detail-item full"><span>🙍 Added By</span><strong>{r.owner}</strong></div>
                 </div>
@@ -399,9 +444,9 @@ export default function App() {
         </div>
       )}
 
-      {/* Add / Edit Modal */}
+      {/* Add / Edit Modal — only closes via ✕ or Cancel */}
       {modal && (
-        <div className="modal-overlay" onClick={() => setModal(false)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-hdr">
               <div><h2>{editId ? '✏️ Edit Record' : '➕ Add New Record'}</h2><p>Fill in the details — everything can be edited later</p></div>
@@ -422,14 +467,14 @@ export default function App() {
                   {COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
-              <div className="form-group"><label>Leasing Amount (PKR)</label><input name="leasingAmount" type="number" value={form.leasingAmount} onChange={onChange} placeholder="0" /></div>
+              <div className="form-group"><label>Leasing Amount (USD)</label><input name="leasingAmount" type="number" value={form.leasingAmount} onChange={onChange} placeholder="0" /></div>
               <div className="form-group"><label>Approved By</label><input name="approvedBy" value={form.approvedBy} onChange={onChange} placeholder="Approver's name" /></div>
               <div className="form-group"><label>Approval Date</label><input name="approvedDate" type="date" value={form.approvedDate} onChange={onChange} /></div>
             </div>
             <div className="section-divider">📱 Device Information</div>
             <div className="form-grid">
               <div className="form-group"><label>Device Name</label><input name="deviceName" value={form.deviceName} onChange={onChange} placeholder="e.g. iPhone 16, Samsung S25" /></div>
-              <div className="form-group"><label>Device Amount (PKR)</label><input name="deviceAmount" type="number" value={form.deviceAmount} onChange={onChange} placeholder="0" /></div>
+              <div className="form-group"><label>Device Amount (USD)</label><input name="deviceAmount" type="number" value={form.deviceAmount} onChange={onChange} placeholder="0" /></div>
               <div className="form-group full"><label>Payment Plan</label><input name="paymentTime" value={form.paymentTime} onChange={onChange} placeholder="e.g. 12 months, Monthly installment" /></div>
             </div>
             <div className="modal-footer">
