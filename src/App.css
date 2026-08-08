@@ -116,6 +116,7 @@ tbody td { padding:12px 15px; color:var(--text-dark); white-space:nowrap; }
 .avatar { width:30px; height:30px; border-radius:50%; flex-shrink:0; background:var(--gradient-premium); color:#fff; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; }
 .emp-name { font-size:12.5px; font-weight:600; color:var(--text-dark); }
 .badge-co { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; background:var(--primary-light); color:var(--primary); }
+.badge-loc { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; background:#e0f2fe; color:#0369a1; }
 .amt-cell { font-weight:700; color:var(--primary); font-size:13px; }
 .own-badge { display:inline-flex; align-items:center; gap:5px; background:var(--main-bg); border:1px solid var(--border); border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; color:var(--text); }
 .own-dot { width:7px; height:7px; border-radius:50%; background:var(--gradient-premium); flex-shrink:0; }

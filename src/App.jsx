@@ -23,7 +23,8 @@ const fmtUSD = v => {
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const PIE_COLORS = ['#8a2be2','#9d4edd','#b794f4','#d8b4fe','#7b2bd6','#6b25cb']
 const COMPANIES = ['Progressive','American First Finance','Acima','Paytriage','Easy Pay']
-const EMPTY = { employeeName:'', customerName:'', customerNumber:'', leasingCompany:'', leasingAmount:'', approvedBy:'', approvedDate:'', deviceName:'', deviceAmount:'', paymentTime:'' }
+const LOCATIONS = ['Nederland', 'La Vega', 'Quita College', 'Street Dowlen']
+const EMPTY = { employeeName:'', customerName:'', customerNumber:'', leasingCompany:'', leasingAmount:'', approvedBy:'', approvedDate:'', deviceName:'', deviceAmount:'', paymentTime:'', storeLocation:'' }
 
 const ChartTip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
@@ -378,7 +379,7 @@ export default function App() {
                   <thead>
                     <tr>
                       <th>#</th><th>Employee</th><th>Customer Name</th><th>Phone</th>
-                      <th>Leasing Company</th><th>Leasing Amt</th><th>Approved By</th>
+                      <th>Leasing Company</th><th>Location</th><th>Leasing Amt</th><th>Approved By</th>
                       <th>Approved Date</th><th>Device</th><th>Device Amt</th>
                       <th>Payment Plan</th><th>Added By</th><th>Action</th>
                     </tr>
@@ -391,6 +392,7 @@ export default function App() {
                         <td><span className="customer-link" onClick={() => setViewCustomer(r.customerName)}>{r.customerName||'—'}</span></td>
                         <td>{r.customerNumber||'—'}</td>
                         <td>{r.leasingCompany ? <span className="badge-co">{r.leasingCompany}</span> : '—'}</td>
+                        <td>{r.storeLocation ? <span className="badge-loc">{r.storeLocation}</span> : '—'}</td>
                         <td className="amt-cell">{fmtUSD(r.leasingAmount)}</td>
                         <td>{r.approvedBy||'—'}</td>
                         <td>{r.approvedDate||'—'}</td>
@@ -424,7 +426,8 @@ export default function App() {
                   <div className="cust-detail-item"><span>📞 Phone</span><strong>{r.customerNumber||'—'}</strong></div>
                   <div className="cust-detail-item"><span>👨‍💼 Employee</span><strong>{r.employeeName||'—'}</strong></div>
                   <div className="cust-detail-item"><span>🏢 Leasing Company</span><strong>{r.leasingCompany||'—'}</strong></div>
-                  <div className="cust-detail-item"><span>💰 Leasing Amount</span><strong style={{ color:'var(--primary)' }}>{fmtUSD(r.leasingAmount)}</strong></div>
+                  <div className="cust-detail-item"><span>� Store Location</span><strong>{r.storeLocation||'—'}</strong></div>
+                  <div className="cust-detail-item"><span>�💰 Leasing Amount</span><strong style={{ color:'var(--primary)' }}>{fmtUSD(r.leasingAmount)}</strong></div>
                   <div className="cust-detail-item"><span>✅ Approved By</span><strong>{r.approvedBy||'—'}</strong></div>
                   <div className="cust-detail-item"><span>📅 Approved Date</span><strong>{r.approvedDate||'—'}</strong></div>
                   <div className="cust-detail-item"><span>📱 Device</span><strong>{r.deviceName||'—'}</strong></div>
@@ -465,6 +468,13 @@ export default function App() {
                 <select name="leasingCompany" value={form.leasingCompany} onChange={onChange}>
                   <option value="">— Select Company —</option>
                   {COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Store Location</label>
+                <select name="storeLocation" value={form.storeLocation} onChange={onChange}>
+                  <option value="">— Select Location —</option>
+                  {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
                 </select>
               </div>
               <div className="form-group"><label>Leasing Amount (USD)</label><input name="leasingAmount" type="number" value={form.leasingAmount} onChange={onChange} placeholder="0" /></div>
